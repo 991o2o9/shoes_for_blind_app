@@ -1,8 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
 
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter_blue_plus/flutter_blue_plus.dart' as fbp;
 
 class ArduinoBluetoothService {
@@ -101,29 +99,12 @@ class ArduinoBluetoothService {
   }
 
   void _processMessage(String message) async {
-    User? user = FirebaseAuth.instance.currentUser;
-    if (user == null) return;
-
+    // Process incoming messages from Arduino
     if (message.startsWith('FRONT_DIST:')) {
       double dist = double.tryParse(message.split(':')[1]) ?? 0;
       if (dist < 10) {
         await sendCommand('ALERT_MODE');
-        await _logEvent('Критически близкое препятствие спереди: ${dist} см');
       }
-    } else if (message.startsWith('DOWN_DIST:')) {
-      // Log step detection
-      await _logEvent('Обнаружено движение ноги');
-    }
-  }
-
-  Future<void> _logEvent(String event) async {
-    User? user = FirebaseAuth.instance.currentUser;
-    if (user != null) {
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(user.uid)
-          .collection('logs')
-          .add({'event': event, 'timestamp': FieldValue.serverTimestamp()});
     }
   }
 

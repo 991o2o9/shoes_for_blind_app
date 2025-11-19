@@ -1,7 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+
+import '../services/api_service.dart';
 
 class RegisterScreen extends StatefulWidget {
   const RegisterScreen({super.key});
@@ -18,47 +17,19 @@ class _RegisterScreenState extends State<RegisterScreen> {
   Future<void> _register() async {
     setState(() => _isLoading = true);
     try {
-      // Try Firebase first
-      UserCredential userCredential = await FirebaseAuth.instance
-          .createUserWithEmailAndPassword(
-            email: _usernameController.text.trim(),
-            password: _passwordController.text,
-          );
-
-      // Create user document in Firestore with default settings
-      await FirebaseFirestore.instance
-          .collection('users')
-          .doc(userCredential.user!.uid)
-          .set({
-            'email': _usernameController.text.trim(),
-            'frontThreshold': 100,
-            'downSensitivity': 'medium',
-            'deviceOn': false,
-          });
+      final apiService = ApiService();
+      await apiService.register(
+        _usernameController.text.trim(),
+        _passwordController.text,
+      );
+      Navigator.pushReplacementNamed(context, '/home');
     } catch (e) {
-      // Fallback to local storage
-      var box = await Hive.openBox('users');
-      String username = _usernameController.text.trim();
-
-      // Check if user already exists
-      if (box.get('${username}_password') != null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Пользователь уже существует')),
-        );
-        setState(() => _isLoading = false);
-        return;
-      }
-
-      // Save user locally
-      await box.put('${username}_password', _passwordController.text);
-      await box.put('${username}_frontThreshold', 100);
-      await box.put('${username}_downSensitivity', 'medium');
-      await box.put('${username}_deviceOn', false);
-      await box.put('current_user', username);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ошибка регистрации: $e')));
+    } finally {
+      setState(() => _isLoading = false);
     }
-
-    Navigator.pushReplacementNamed(context, '/home');
-    setState(() => _isLoading = false);
   }
 
   @override

@@ -1,9 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 
-import '../services/bluetooth_service.dart';
+import '../services/api_service.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key});
@@ -13,9 +10,9 @@ class SettingsScreen extends StatefulWidget {
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  final ArduinoBluetoothService _btService = ArduinoBluetoothService();
+  final ApiService _apiService = ApiService();
   double _frontThreshold = 100.0;
-  String _downSensitivity = 'medium';
+  bool _isLoading = true;
 
   @override
   void initState() {
@@ -23,101 +20,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
     _loadSettings();
   }
 
-  void _loadSettings() async {
+  Future<void> _loadSettings() async {
     try {
-      // Try Firebase first
-      User? user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        DocumentSnapshot doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-        if (doc.exists) {
-          setState(() {
-            _frontThreshold = (doc['frontThreshold'] ?? 100).toDouble();
-            _downSensitivity = doc['downSensitivity'] ?? 'medium';
-          });
-          return;
-        }
-      }
-    } catch (e) {
-      // Firebase not available, use local storage
-    }
-
-    // Fallback to local storage
-    var box = await Hive.openBox('users');
-    String? currentUser = box.get('current_user');
-    if (currentUser != null) {
+      // For now, use default values since we removed user-specific settings
+      // In a real app, you might want to store this in the backend
       setState(() {
-        _frontThreshold = (box.get('${currentUser}_frontThreshold') ?? 100)
-            .toDouble();
-        _downSensitivity =
-            box.get('${currentUser}_downSensitivity') ?? 'medium';
+        _frontThreshold = 100.0;
+        _isLoading = false;
       });
+    } catch (e) {
+      setState(() => _isLoading = false);
     }
   }
 
   void _updateFrontThreshold(double value) async {
     setState(() => _frontThreshold = value);
-    await _btService.sendCommand('SET_FRONT_THRESHOLD:${value.toInt()}');
-
-    try {
-      // Try Firebase first
-      User? user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .update({'frontThreshold': value.toInt()});
-        return;
-      }
-    } catch (e) {
-      // Firebase not available, use local storage
-    }
-
-    // Fallback to local storage
-    var box = await Hive.openBox('users');
-    String? currentUser = box.get('current_user');
-    if (currentUser != null) {
-      await box.put('${currentUser}_frontThreshold', value.toInt());
-    }
-  }
-
-  void _updateDownSensitivity(String value) async {
-    setState(() => _downSensitivity = value);
-    await _btService.sendCommand('SET_DOWN_SENSITIVITY:$value');
-
-    try {
-      // Try Firebase first
-      User? user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .update({'downSensitivity': value});
-        return;
-      }
-    } catch (e) {
-      // Firebase not available, use local storage
-    }
-
-    // Fallback to local storage
-    var box = await Hive.openBox('users');
-    String? currentUser = box.get('current_user');
-    if (currentUser != null) {
-      await box.put('${currentUser}_downSensitivity', value);
-    }
-  }
-
-  void _testVibration() async {
-    await _btService.sendCommand('TEST_VIBRATION');
-    ScaffoldMessenger.of(
-      context,
-    ).showSnackBar(const SnackBar(content: Text('Тест вибрации отправлен')));
+    // Here you would send the command to Arduino via Bluetooth
+    // For now, just update the local state
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return Scaffold(
       appBar: AppBar(title: const Text("Настройки")),
       body: Padding(
@@ -142,32 +69,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ],
                 ),
               ),
-            ),
-            const SizedBox(height: 16),
-            Card(
-              child: Padding(
-                padding: const EdgeInsets.all(16.0),
-                child: Column(
-                  children: [
-                    const Text('Чувствительность нижнего датчика'),
-                    DropdownButton<String>(
-                      value: _downSensitivity,
-                      items: ['low', 'medium', 'high'].map((String value) {
-                        return DropdownMenuItem<String>(
-                          value: value,
-                          child: Text(value),
-                        );
-                      }).toList(),
-                      onChanged: (value) => _updateDownSensitivity(value!),
-                    ),
-                  ],
-                ),
-              ),
-            ),
-            const SizedBox(height: 16),
-            ElevatedButton(
-              onPressed: _testVibration,
-              child: const Text('Тест вибрации'),
             ),
             const SizedBox(height: 16),
             ElevatedButton(

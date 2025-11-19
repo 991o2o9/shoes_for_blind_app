@@ -1,6 +1,6 @@
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
+
+import '../services/api_service.dart';
 
 class LoginScreen extends StatefulWidget {
   const LoginScreen({super.key});
@@ -17,30 +17,19 @@ class _LoginScreenState extends State<LoginScreen> {
   Future<void> _login() async {
     setState(() => _isLoading = true);
     try {
-      // Try Firebase first
-      await FirebaseAuth.instance.signInWithEmailAndPassword(
-        email: _usernameController.text.trim(),
-        password: _passwordController.text,
+      final apiService = ApiService();
+      await apiService.login(
+        _usernameController.text.trim(),
+        _passwordController.text,
       );
+      Navigator.pushReplacementNamed(context, '/home');
     } catch (e) {
-      // Fallback to local storage
-      var box = await Hive.openBox('users');
-      String username = _usernameController.text.trim();
-      String? storedPassword = box.get('${username}_password');
-
-      if (storedPassword == _passwordController.text) {
-        await box.put('current_user', username);
-      } else {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Неверные учетные данные')),
-        );
-        setState(() => _isLoading = false);
-        return;
-      }
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ошибка входа: $e')));
+    } finally {
+      setState(() => _isLoading = false);
     }
-
-    Navigator.pushReplacementNamed(context, '/home');
-    setState(() => _isLoading = false);
   }
 
   @override

@@ -1,8 +1,6 @@
-import 'package:cloud_firestore/cloud_firestore.dart';
-import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
-import 'package:hive_flutter/hive_flutter.dart';
 
+import '../services/api_service.dart';
 import '../services/bluetooth_service.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -14,52 +12,34 @@ class HomeScreen extends StatefulWidget {
 
 class _HomeScreenState extends State<HomeScreen> {
   final ArduinoBluetoothService _btService = ArduinoBluetoothService();
+  final ApiService _apiService = ApiService();
   bool _deviceOn = false;
   String _frontDist = 'N/A';
-  String _downDist = 'N/A';
+  bool _isAdmin = false;
+  bool _isLoading = true;
 
   @override
   void initState() {
     super.initState();
-    _loadUserSettings();
+    _initialize();
     _btService.dataStream.listen(_handleIncomingData);
   }
 
-  void _loadUserSettings() async {
+  Future<void> _initialize() async {
     try {
-      // Try Firebase first
-      User? user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        DocumentSnapshot doc = await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .get();
-        if (doc.exists) {
-          setState(() {
-            _deviceOn = doc['deviceOn'] ?? false;
-          });
-          return;
-        }
-      }
-    } catch (e) {
-      // Firebase not available, use local storage
-    }
-
-    // Fallback to local storage
-    var box = await Hive.openBox('users');
-    String? currentUser = box.get('current_user');
-    if (currentUser != null) {
+      final userData = await _apiService.getMe();
       setState(() {
-        _deviceOn = box.get('${currentUser}_deviceOn') ?? false;
+        _isAdmin = userData['user']['role'] == 'admin';
+        _isLoading = false;
       });
+    } catch (e) {
+      setState(() => _isLoading = false);
     }
   }
 
   void _handleIncomingData(String data) {
     if (data.startsWith('FRONT_DIST:')) {
       setState(() => _frontDist = data.split(':')[1]);
-    } else if (data.startsWith('DOWN_DIST:')) {
-      setState(() => _downDist = data.split(':')[1]);
     } else if (data.startsWith('DEVICE:ON')) {
       setState(() => _deviceOn = true);
     } else if (data.startsWith('DEVICE:OFF')) {
@@ -68,49 +48,51 @@ class _HomeScreenState extends State<HomeScreen> {
   }
 
   void _toggleDevice() async {
-    String command = _deviceOn ? 'TURN_OFF' : 'TURN_ON';
-    await _btService.sendCommand(command);
-    setState(() => _deviceOn = !_deviceOn);
-
     try {
-      // Try Firebase first
-      User? user = FirebaseAuth.instance.currentUser;
-      if (user != null) {
-        await FirebaseFirestore.instance
-            .collection('users')
-            .doc(user.uid)
-            .update({'deviceOn': _deviceOn});
-        return;
-      }
+      await _apiService.setDevicePower(!_deviceOn);
+      setState(() => _deviceOn = !_deviceOn);
     } catch (e) {
-      // Firebase not available, use local storage
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ошибка: $e')));
     }
+  }
 
-    // Fallback to local storage
-    var box = await Hive.openBox('users');
-    String? currentUser = box.get('current_user');
-    if (currentUser != null) {
-      await box.put('${currentUser}_deviceOn', _deviceOn);
+  void _testBuzzer() async {
+    try {
+      await _apiService.setBuzzer(true);
+      await Future.delayed(const Duration(seconds: 1));
+      await _apiService.setBuzzer(false);
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(const SnackBar(content: Text('Тест звука выполнен')));
+    } catch (e) {
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text('Ошибка: $e')));
     }
   }
 
   void _logout() async {
-    try {
-      await FirebaseAuth.instance.signOut();
-    } catch (e) {
-      // Firebase not available, just clear local user
-      var box = await Hive.openBox('users');
-      await box.delete('current_user');
-    }
+    await _apiService.logout();
     Navigator.pushReplacementNamed(context, '/login');
   }
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoading) {
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     return Scaffold(
       appBar: AppBar(
         title: const Text("Главная"),
         actions: [
+          if (_isAdmin)
+            IconButton(
+              icon: const Icon(Icons.admin_panel_settings),
+              onPressed: () => Navigator.pushNamed(context, '/users'),
+            ),
           IconButton(icon: const Icon(Icons.logout), onPressed: _logout),
         ],
       ),
@@ -118,15 +100,37 @@ class _HomeScreenState extends State<HomeScreen> {
         padding: const EdgeInsets.all(16.0),
         child: Column(
           children: [
+            // Large power button
             Card(
               child: Padding(
-                padding: const EdgeInsets.all(16.0),
+                padding: const EdgeInsets.all(24.0),
                 child: Column(
                   children: [
-                    Text('Устройство: ${_deviceOn ? 'ВКЛ' : 'ВЫКЛ'}'),
-                    Switch(
-                      value: _deviceOn,
-                      onChanged: (value) => _toggleDevice(),
+                    Text(
+                      'Устройство: ${_deviceOn ? 'ВКЛЮЧЕНО' : 'ВЫКЛЮЧЕНО'}',
+                      style: const TextStyle(
+                        fontSize: 18,
+                        fontWeight: FontWeight.bold,
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                    SizedBox(
+                      width: 120,
+                      height: 120,
+                      child: ElevatedButton(
+                        onPressed: _toggleDevice,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: _deviceOn
+                              ? Colors.green
+                              : Colors.red,
+                          shape: const CircleBorder(),
+                        ),
+                        child: Icon(
+                          _deviceOn ? Icons.power_off : Icons.power,
+                          size: 60,
+                          color: Colors.white,
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -137,10 +141,7 @@ class _HomeScreenState extends State<HomeScreen> {
               child: Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Column(
-                  children: [
-                    Text('Передний датчик: $_frontDist см'),
-                    Text('Нижний датчик: $_downDist см'),
-                  ],
+                  children: [Text('Передний датчик: $_frontDist см')],
                 ),
               ),
             ),
@@ -148,6 +149,7 @@ class _HomeScreenState extends State<HomeScreen> {
             Expanded(
               child: GridView.count(
                 crossAxisCount: 2,
+                childAspectRatio: 1.5,
                 children: [
                   ElevatedButton(
                     onPressed: () => Navigator.pushNamed(context, '/bluetooth'),
@@ -158,12 +160,13 @@ class _HomeScreenState extends State<HomeScreen> {
                     child: const Text("Настройки"),
                   ),
                   ElevatedButton(
-                    onPressed: () => Navigator.pushNamed(context, '/logs'),
-                    child: const Text("Журнал"),
+                    onPressed: _testBuzzer,
+                    child: const Text("Тест звука"),
                   ),
                   ElevatedButton(
-                    onPressed: () => _btService.sendCommand('TEST_VIBRATION'),
-                    child: const Text("Тест вибрации"),
+                    onPressed: () =>
+                        Navigator.pushNamed(context, '/calibration'),
+                    child: const Text("Калибровка"),
                   ),
                 ],
               ),
